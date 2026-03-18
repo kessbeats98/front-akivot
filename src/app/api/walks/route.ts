@@ -50,12 +50,13 @@ export async function GET(request: NextRequest) {
           finalPrice: walks.finalPrice,
           currency: walks.currency,
           note: walks.note,
+          walkBatchId: walks.walkBatchId,
         })
         .from(walks)
         .innerJoin(dogs, eq(walks.dogId, dogs.id))
         .where(eq(walks.walkerProfileId, walkerProfile.id))
         .orderBy(desc(walks.startTime))
-      
+
       if (status) {
         query = db
           .select({
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
             finalPrice: walks.finalPrice,
             currency: walks.currency,
             note: walks.note,
+            walkBatchId: walks.walkBatchId,
           })
           .from(walks)
           .innerJoin(dogs, eq(walks.dogId, dogs.id))
@@ -96,6 +98,7 @@ export async function GET(request: NextRequest) {
         endedAt: w.endTime?.toISOString(),
         durationMinutes: w.durationMinutes,
         notes: w.note,
+        walkBatchId: w.walkBatchId,
       })))
     } else {
       // Owner: Get walks for their dogs
