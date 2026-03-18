@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, timestamp, jsonb } from 'drizzle-orm/pg-core'
 import { entityTypeEnum, auditActionEnum } from './enums'
+import { users } from './users'
 
 // ============================================
 // AUDIT LOGS TABLE
@@ -7,9 +8,9 @@ import { entityTypeEnum, auditActionEnum } from './enums'
 // ============================================
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
-  actorUserId: uuid('actor_user_id').notNull(),
+  actorUserId: text('actor_user_id').references(() => users.id),
   entityType: entityTypeEnum('entity_type').notNull(),
-  entityId: uuid('entity_id').notNull(),
+  entityId: text('entity_id').notNull(),
   action: auditActionEnum('action').notNull(),
   beforeJson: jsonb('before_json'),
   afterJson: jsonb('after_json'),

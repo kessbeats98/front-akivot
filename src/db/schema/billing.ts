@@ -1,5 +1,6 @@
-import { pgTable, uuid, varchar, text, timestamp, numeric } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, timestamp, numeric, integer, unique } from 'drizzle-orm/pg-core'
 import { paymentPeriodStatusEnum, paymentEntryTypeEnum } from './enums'
+import { users, walkerProfiles } from './users'
 
 // ============================================
 // PAYMENT PERIODS TABLE
@@ -8,19 +9,17 @@ import { paymentPeriodStatusEnum, paymentEntryTypeEnum } from './enums'
 // ============================================
 export const paymentPeriods = pgTable('payment_periods', {
   id: uuid('id').primaryKey().defaultRandom(),
-  walkerProfileId: uuid('walker_profile_id').notNull(),
-  ownerUserId: uuid('owner_user_id').notNull(),
-  status: paymentPeriodStatusEnum('status').notNull().default('OPEN'),
+  walkerProfileId: uuid('walker_profile_id').references(() => walkerProfiles.id).notNull(),
+  ownerUserId: text('owner_user_id').references(() => users.id).notNull(),
+  status: paymentPeriodStatusEnum('status').notNull(),
   totalAmount: numeric('total_amount', { precision: 10, scale: 2 }).notNull().default('0'),
-  currency: varchar('currency', { length: 3 }).notNull().default('ILS'),
-  openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
-  closedAt: timestamp('closed_at', { withTimezone: true }),
   paidAt: timestamp('paid_at', { withTimezone: true }),
+  paidByUserId: text('paid_by_user_id').references(() => users.id),
   reopenedAt: timestamp('reopened_at', { withTimezone: true }),
-  archivedAt: timestamp('archived_at', { withTimezone: true }),
-  createdByUserId: uuid('created_by_user_id').notNull(),
+  reopenedByUserId: text('reopened_by_user_id').references(() => users.id),
+  lockVersion: integer('lock_version').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
 })
 
 // ============================================
@@ -28,13 +27,17 @@ export const paymentPeriods = pgTable('payment_periods', {
 // Individual entries within a payment period
 // Each walk that gets billed becomes an entry
 // ============================================
-export const paymentEntries = pgTable('payment_entries', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  paymentPeriodId: uuid('payment_period_id').notNull(),
-  walkId: uuid('walk_id'),
-  type: paymentEntryTypeEnum('type').notNull().default('WALK'),
-  amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
-  description: text('description'),
-  createdByUserId: uuid('created_by_user_id').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-})
+export const paymentEntries = pgTable(
+  'payment_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    paymentPeriodId: uuid('payment_period_id').references(() => paymentPeriods.id).notNull(),
+    // Intentionally no DB FK — circular import billing.ts ↔ walks.ts
+    walkId: uuid('walk_id'),
+    ownerUserId: text('owner_user_id').references(() => users.id).notNull(),
+    amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+    entryType: paymentEntryTypeEnum('entry_type').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.paymentPeriodId, t.walkId)],
+)

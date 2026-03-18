@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, timestamp } from 'drizzle-orm/pg-core'
 import { notificationTypeEnum, notificationDeliveryStatusEnum } from './enums'
+import { userDevices } from './users'
 
 // ============================================
 // NOTIFICATION DELIVERIES TABLE
@@ -8,8 +9,8 @@ import { notificationTypeEnum, notificationDeliveryStatusEnum } from './enums'
 // ============================================
 export const notificationDeliveries = pgTable('notification_deliveries', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull(),
-  userDeviceId: uuid('user_device_id'),
+  userId: text('user_id').notNull(),
+  userDeviceId: uuid('user_device_id').references(() => userDevices.id),
   type: notificationTypeEnum('type').notNull(),
   title: text('title').notNull(),
   body: text('body').notNull(),
