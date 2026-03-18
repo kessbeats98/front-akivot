@@ -233,6 +233,8 @@ export async function getLiveWalksOlderThan(minutesAgo: number) {
     .from(walks)
     .where(and(
       eq(walks.status, 'LIVE'),
+      isNull(walks.autoClosedAt),
+      isNull(walks.deletedAt),
       lte(walks.startTime, cutoff)
     ))
 }
