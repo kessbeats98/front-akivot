@@ -78,7 +78,7 @@ export async function autoCloseWalksJob(options?: { now?: Date }): Promise<AutoC
         finalPrice,
         closureReason: 'AUTO_TIMEOUT',
         autoClosedAt: now,
-        updatedByUserId: walk.createdByUserId, // Use creator as updater for auto-close
+        updatedByUserId: null,
       })
       
       // Update batch if all walks are done

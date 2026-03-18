@@ -148,7 +148,7 @@ export async function updateWalk(id: string, data: Partial<{
   completedAt: Date
   autoClosedAt: Date
   cancelledAt: Date
-  updatedByUserId: string
+  updatedByUserId: string | null
 }>) {
   const [walk] = await db
     .update(walks)

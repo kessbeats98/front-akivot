@@ -5,6 +5,7 @@
 // Called by Vercel Cron every 5 minutes
 // ============================================
 
+import { timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { autoCloseWalksJob } from '@/lib/services/jobs/autoCloseWalks'
 
@@ -18,8 +19,12 @@ export async function GET(request: NextRequest) {
     const authHeader = request.headers.get('authorization')
     const expectedSecret = process.env.CRON_SECRET
     
-    if (expectedSecret && authHeader !== `Bearer ${expectedSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (expectedSecret) {
+      const expected = Buffer.from(`Bearer ${expectedSecret}`)
+      const actual = Buffer.from(authHeader ?? '')
+      if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
     }
     
     // Run the job
