@@ -14,7 +14,7 @@ export const users = pgTable('users', {
   phone: text('phone'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 // ============================================
@@ -29,7 +29,7 @@ export const walkerProfiles = pgTable('walker_profiles', {
   inviteCode: text('invite_code').unique().notNull(),
   isAcceptingClients: boolean('is_accepting_clients').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 // ============================================
@@ -47,7 +47,7 @@ export const userDevices = pgTable('user_devices', {
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
   invalidatedAt: timestamp('invalidated_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 // ============================================
