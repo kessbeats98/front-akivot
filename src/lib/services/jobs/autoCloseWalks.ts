@@ -7,12 +7,13 @@
 
 import { db } from '@/db'
 import { walks, walkBatches, dogWalkers } from '@/db/schema'
-import { 
+import {
   getLiveWalksOlderThan,
   updateWalk,
 } from '@/lib/repositories/walksRepo'
 import { updateWalkBatch } from '@/lib/repositories/walksRepo'
 import { createAuditLog } from '@/lib/repositories/auditRepo'
+import { sendWalkNotifications } from '@/lib/services/notifications/sendWalkNotifications'
 import { eq } from 'drizzle-orm'
 
 // ============================================
@@ -136,6 +137,14 @@ export async function autoCloseWalksJob(options?: { now?: Date }): Promise<AutoC
     }
   }
   
+  // Fire-and-forget: notify owners of auto-closed walks
+  if (result.autoClosed.length > 0) {
+    void sendWalkNotifications({
+      walkIds: result.autoClosed.map((w) => w.walkId),
+      type: 'AUTO_CLOSED',
+    }).catch(() => {})
+  }
+
   // ==========================================
   // PHASE 2: Send warning for walks approaching timeout
   // ==========================================
