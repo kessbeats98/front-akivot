@@ -15,6 +15,7 @@ import {
   getLiveWalksByBatchId,
 } from '@/lib/repositories/walksRepo'
 import { createAuditLogsBatch, AuditAction, EntityType } from '@/lib/repositories/auditRepo'
+import { sendWalkNotifications } from '@/lib/services/notifications/sendWalkNotifications'
 import { ForbiddenError } from '@/lib/auth/session'
 import { eq, and } from 'drizzle-orm'
 
@@ -239,11 +240,12 @@ export async function endWalkBatchService(
     return walkResults
   })
   
-  // ==========================================
-  // POST-COMMIT: Send notifications (non-blocking)
-  // ==========================================
-  // Will be handled by notifications service
-  
+  // Fire-and-forget notifications
+  sendWalkNotifications({
+    walkIds: result.map((w) => w.id),
+    type: 'WALK_COMPLETED',
+  }).catch(() => {})
+
   return {
     walkBatchId,
     endedAt: actualEndTime,

@@ -22,8 +22,9 @@ import {
   UnauthorizedError,
   WalkerProfile 
 } from '@/lib/auth/session'
+import { sendWalkNotifications } from '@/lib/services/notifications/sendWalkNotifications'
 import { and, eq } from 'drizzle-orm'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 
 // ============================================
 // INPUT TYPES
@@ -41,6 +42,7 @@ interface StartWalkBatchInput {
 interface StartWalkBatchOutput {
   walkBatchId: string
   startedAt: Date
+  idempotent?: boolean
   walks: Array<{
     id: string
     dogId: string
@@ -133,119 +135,140 @@ export async function startWalkBatchService(
   }
   
   // ==========================================
-  // IDEMPOTENCY: Check if batch already created
-  // (same dogs, within last 30 seconds)
-  // ==========================================
-  const thirtySecondsAgo = new Date(Date.now() - 30000)
-  const existingBatch = await db.query.walkBatches.findFirst({
-    where: and(
-      eq(walkBatches.walkerProfileId, walkerProfileId),
-      eq(walkBatches.status, 'LIVE'),
-      // startedAt > thirtySecondsAgo
-    ),
-  })
-  
-  // If a very recent batch exists with the same dogs, return it (idempotent)
-  // This is a simple check - in production you might want a more robust idempotency key
-  
-  // ==========================================
-  // TRANSACTION: Create batch + walks + audit logs
+  // IDEMPOTENCY KEY: SHA-256(walkerProfileId + sorted dogIds + minute bucket)
   // ==========================================
   const actualStartTime = startTime ?? new Date()
   const batchId = randomUUID()
-  
-  const result = await db.transaction(async (tx) => {
-    // Create walk batch
-    const [batch] = await tx
-      .insert(walkBatches)
-      .values({
-        id: batchId,
-        walkerProfileId,
-        status: 'LIVE',
-        startedAt: actualStartTime,
-        startedByUserId,
-      })
-      .returning()
-    
-    // Create walks for each dog
-    const walkRecords: Array<{
-      id: string
-      dogId: string
-      dogName: string
-      startTime: Date
-      status: string
-    }> = []
-    
-    const auditLogs: Array<{
-      actorUserId: string
-      entityType: EntityType
-      entityId: string
-      action: AuditAction
-      afterJson: Record<string, unknown>
-      metadataJson?: Record<string, unknown>
-    }> = []
-    
-    for (const { dog, dogWalker } of dogData) {
-      const walkId = randomUUID()
-      
-      const [walk] = await tx
-        .insert(walks)
+
+  const sortedDogIds = [...dogIds].sort()
+  const minuteBucket = Math.floor(Date.now() / 60000)
+  const idempotencyInput = `${walkerProfileId}${sortedDogIds.join(',')}${minuteBucket}`
+  const idempotencyKey = createHash('sha256').update(idempotencyInput).digest('hex')
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Create walk batch
+      const [batch] = await tx
+        .insert(walkBatches)
         .values({
-          id: walkId,
-          dogId: dog.id,
+          id: batchId,
+          idempotencyKey,
           walkerProfileId,
-          dogWalkerId: dogWalker.id,
-          walkBatchId: batchId,
           status: 'LIVE',
-          startTime: actualStartTime,
-          createdByUserId: startedByUserId,
-          updatedByUserId: startedByUserId,
+          startedAt: actualStartTime,
+          startedByUserId,
         })
         .returning()
-      
-      walkRecords.push({
-        id: walkId,
-        dogId: dog.id,
-        dogName: dog.name,
-        startTime: actualStartTime,
-        status: 'LIVE',
-      })
-      
-      auditLogs.push({
-        actorUserId: startedByUserId,
-        entityType: 'WALK',
-        entityId: walkId,
-        action: 'START_WALK',
-        afterJson: {
-          walkId,
+
+      // Create walks for each dog
+      const walkRecords: Array<{
+        id: string
+        dogId: string
+        dogName: string
+        startTime: Date
+        status: string
+      }> = []
+
+      const auditLogs: Array<{
+        actorUserId: string
+        entityType: EntityType
+        entityId: string
+        action: AuditAction
+        afterJson: Record<string, unknown>
+        metadataJson?: Record<string, unknown>
+      }> = []
+
+      for (const { dog, dogWalker } of dogData) {
+        const walkId = randomUUID()
+
+        const [walk] = await tx
+          .insert(walks)
+          .values({
+            id: walkId,
+            dogId: dog.id,
+            walkerProfileId,
+            dogWalkerId: dogWalker.id,
+            walkBatchId: batchId,
+            status: 'LIVE',
+            startTime: actualStartTime,
+            createdByUserId: startedByUserId,
+            updatedByUserId: startedByUserId,
+          })
+          .returning()
+
+        walkRecords.push({
+          id: walkId,
           dogId: dog.id,
           dogName: dog.name,
-          walkerProfileId,
-          walkBatchId: batchId,
-          startTime: actualStartTime.toISOString(),
-        },
-        metadataJson: {
-          dogWalkerId: dogWalker.id,
-          priceSnapshot: dogWalker.currentPrice,
-        },
-      })
+          startTime: actualStartTime,
+          status: 'LIVE',
+        })
+
+        auditLogs.push({
+          actorUserId: startedByUserId,
+          entityType: 'WALK',
+          entityId: walkId,
+          action: 'START_WALK',
+          afterJson: {
+            walkId,
+            dogId: dog.id,
+            dogName: dog.name,
+            walkerProfileId,
+            walkBatchId: batchId,
+            startTime: actualStartTime.toISOString(),
+          },
+          metadataJson: {
+            dogWalkerId: dogWalker.id,
+            priceSnapshot: dogWalker.currentPrice,
+          },
+        })
+      }
+
+      // Create audit logs
+      await createAuditLogsBatch(auditLogs)
+
+      return { batch, walks: walkRecords }
+    })
+
+    // Fire-and-forget notifications
+    sendWalkNotifications({
+      walkIds: result.walks.map((w) => w.id),
+      type: 'WALK_STARTED',
+    }).catch(() => {})
+
+    return {
+      walkBatchId: batchId,
+      startedAt: actualStartTime,
+      walks: result.walks,
     }
-    
-    // Create audit logs
-    await createAuditLogsBatch(auditLogs)
-    
-    return { batch, walks: walkRecords }
-  })
-  
-  // ==========================================
-  // POST-COMMIT: Send notifications (non-blocking)
-  // ==========================================
-  // This will be handled by the notifications service
-  // We don't await it to keep the response fast
-  
-  return {
-    walkBatchId: batchId,
-    startedAt: actualStartTime,
-    walks: result.walks,
+  } catch (err) {
+    // Unique constraint violation on idempotencyKey — return existing batch
+    const pgErrorCode = (err as any)?.code ?? (err as any)?.cause?.code
+    if (pgErrorCode === '23505') {
+      const existing = await db.query.walkBatches.findFirst({
+        where: eq(walkBatches.idempotencyKey, idempotencyKey),
+      })
+      if (!existing) throw err
+
+      const existingWalks = await db
+        .select({
+          id: walks.id,
+          dogId: walks.dogId,
+          dogName: dogs.name,
+          startTime: walks.startTime,
+          status: walks.status,
+        })
+        .from(walks)
+        .innerJoin(dogs, eq(walks.dogId, dogs.id))
+        .where(eq(walks.walkBatchId, existing.id))
+
+      return {
+        walkBatchId: existing.id,
+        startedAt: existing.startedAt,
+        walks: existingWalks,
+        idempotent: true,
+      }
+    }
+    throw err
   }
 }

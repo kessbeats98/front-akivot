@@ -8,6 +8,7 @@ import { walkStatusEnum, walkBatchStatusEnum, closureReasonEnum, walkMediaTypeEn
 // ============================================
 export const walkBatches = pgTable('walk_batches', {
   id: uuid('id').primaryKey().defaultRandom(),
+  idempotencyKey: text('idempotency_key').unique(),
   walkerProfileId: uuid('walker_profile_id').notNull(),
   status: walkBatchStatusEnum('status').notNull().default('LIVE'),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
